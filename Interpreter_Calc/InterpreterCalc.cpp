@@ -1,5 +1,5 @@
 /*
-* modified by kim doohee on 2019.12.11
+* modified by kim doohee on 2019.12.13
 *
 * 본 프로그램은 "만들면서 배우는 인터프린터"에 있는
 * 전자 계산기 프로그램을 참고하였습니다.
@@ -46,7 +46,9 @@ struct Symbol				// 변수 구조체
 
 #define STK_SIZ 20			// 스택 크기
 void input();
+bool programExit();
 void statement();
+void createVar(TknKind k);
 void expression();
 void term();
 void factor();
@@ -55,15 +57,15 @@ Token nextTkn();
 TknKind getWordTkn(char* str);
 int nextCh();
 void operate(TknKind op);
-void powerOperate(int d1, int d2);
-void push(int n);
-int pop();
+void powerOperate(float d1, int d2);
+void push(float n);
+float pop();
 bool chkTkn(TknKind kd);
 bool exceptComment();
 void errorMessage(int err);
 
 
-int stack[STK_SIZ + 1];		// 스택
+float stack[STK_SIZ + 1];	// 스택
 int stkct;					// 스택 관리
 Token token;				// 토큰 저장
 char buf[80];				// 입력용
@@ -89,7 +91,10 @@ int main()
 	while (1) {
 		input();							// 입력
 		token = nextTkn();					// 최초 토큰
-		if (token.kind == EofTkn) exit(1);	// 종료
+		if (token.kind == EofTkn) {			// 종료 판별
+			if (programExit()) exit(1);
+			else continue;
+		}
 		statement();
 		if (errF) errorMessage(errF);		// 에러 메세지
 	}
@@ -108,12 +113,32 @@ void input()
 }
 
 /*
+ * 프로그램 종료 여부를 판별하는 함수
+ */
+bool programExit()
+{
+	char s[10];
+
+	cout << " -- Exit the program?(y/n) --" << endl;
+	cin.getline(s, 10);
+
+	switch (s[0])
+	{
+	case 'y': return true;
+	case 'n': return false;
+	default:
+		cout << " -- Incorrect input --" << endl;
+		return false;
+	}
+	return false;
+}
+
+/*
  * 토큰에 따른 각종 문법을 처리하는 함수 (선언문, 대입문, 출력문)
  */
 void statement()
 {
 	int vNbr;
-	Symbol tempVar[26];
 
 	switch (token.kind)
 	{
@@ -154,66 +179,29 @@ void statement()
 		return;
 
 	case Int:		// Int 변수 선언
-		if (!isVar) { errF = 4; return; }
-		if (isBegin) { errF = 6; return; }
-		memcpy(tempVar, symVar, sizeof(symVar));
+		createVar(Int);
+		return;
 
-		token = nextTkn();
-		if (!chkTkn(VarName)) { errF = 1; return; }
-
-		vNbr = token.intVal;
-		if(!symVar[vNbr].isAvailable) symVar[vNbr] = Symbol(Int);	// 변수 중복 체크
-		else { 
-			memset(symVar, 0, sizeof(symVar));
-			memcpy(symVar, tempVar, sizeof(tempVar));
-			errF = 11; return;
-		}
-
-		token = nextTkn();
-		while (token.kind == Comma) {				// 여러개의 변수를 선언할 경우
-			token = nextTkn();
-			if(!chkTkn(VarName)) {
-				memset(symVar, 0, sizeof(symVar));
-				memcpy(symVar, tempVar, sizeof(tempVar));
-				errF = 1; return;
-			}
-			vNbr = token.intVal;
-			if (!symVar[vNbr].isAvailable) symVar[vNbr] = Symbol(Int);
-			else {
-				memset(symVar, 0, sizeof(symVar));
-				memcpy(symVar, tempVar, sizeof(tempVar));
-				errF = 11; return;
-			}
-			token = nextTkn();
-		}
-
-		if (!chkTkn(FinStc)) {
-			memset(symVar, 0, sizeof(symVar));
-			memcpy(symVar, tempVar, sizeof(tempVar));
-			errF = 1; return;
-		}
-
-		token = nextTkn();
-		if (!chkTkn(EofTkn)) {
-			memset(symVar, 0, sizeof(symVar));
-			memcpy(symVar, tempVar, sizeof(tempVar));
-			errF = 1; return;
-		}
+	case Float:		// Float 변수 선언
+		createVar(Float);
 		return;
 
 	case VarName:		// 대입문
 		if(!isBegin) { errF = 5; return; }
-		vNbr = token.intVal;									// 대입할 곳 보존 
-		if(!symVar[vNbr].isAvailable) { errF = 10; return; }	// 변수 사용 가능 여부 체크
+		vNbr = token.intVal;													// 대입할 곳 보존 
+		if(!symVar[vNbr].isAvailable) { errF = 10; return; }					// 변수 사용 가능 여부 체크
 		token = nextTkn();
-		if (!chkTkn(Assign)) { errF = 1; return; }				// '=' 일 것
+		if (!chkTkn(Assign)) { errF = 1; return; }								// '=' 일 것
 		token = nextTkn();
-		expression();											// 우변 계산
+		expression();															// 우변 계산
 		if (!chkTkn(FinStc)) { errF = 1; return; }
 		token = nextTkn();
 		if (!chkTkn(EofTkn)) { errF = 1; return; }
-		symVar[vNbr].intNum = pop();							// 대입 실행
+		if (symVar[vNbr].kind == Int) symVar[vNbr].intNum = pop();				// int 대입 실행
+		else if (symVar[vNbr].kind == Float) symVar[vNbr].floatNum = pop();		// float 대입 실행
+		else errF = 1;
 		return;
+
 	case Print:			// 출력문
 		if (!isBegin) { errF = 5; return; }
 		token = nextTkn();
@@ -223,11 +211,68 @@ void statement()
 		if (!chkTkn(EofTkn)) { errF = 1; return; }
 		if (!errF) cout << " -- " << pop() << " --"<< endl;	// 에러가 없을 경우만 출력
 		return;
+
 	case Comment:		// 주석
 		return;
+
 	default:
 		errF = 1;
 		return;
+	}
+}
+
+/*
+ * 변수를 선언을 도와주는 함수
+ */
+void createVar(TknKind k)
+{
+	int vNbr;
+	Symbol tempVar[26];
+
+	if (!isVar) { errF = 4; return; }
+	if (isBegin) { errF = 6; return; }
+	memcpy(tempVar, symVar, sizeof(symVar));
+
+	token = nextTkn();
+	if (!chkTkn(VarName)) { errF = 1; return; }
+
+	vNbr = token.intVal;
+	if (!symVar[vNbr].isAvailable) symVar[vNbr] = Symbol(k);	// 변수 중복 체크
+	else {
+		memset(symVar, 0, sizeof(symVar));
+		memcpy(symVar, tempVar, sizeof(tempVar));
+		errF = 11; return;
+	}
+
+	token = nextTkn();
+	while (token.kind == Comma) {				// 여러개의 변수를 선언할 경우
+		token = nextTkn();
+		if (!chkTkn(VarName)) {
+			memset(symVar, 0, sizeof(symVar));
+			memcpy(symVar, tempVar, sizeof(tempVar));
+			errF = 1; return;
+		}
+		vNbr = token.intVal;
+		if (!symVar[vNbr].isAvailable) symVar[vNbr] = Symbol(k);
+		else {
+			memset(symVar, 0, sizeof(symVar));
+			memcpy(symVar, tempVar, sizeof(tempVar));
+			errF = 11; return;
+		}
+		token = nextTkn();
+	}
+
+	if (!chkTkn(FinStc)) {
+		memset(symVar, 0, sizeof(symVar));
+		memcpy(symVar, tempVar, sizeof(tempVar));
+		errF = 1; return;
+	}
+
+	token = nextTkn();
+	if (!chkTkn(EofTkn)) {
+		memset(symVar, 0, sizeof(symVar));
+		memcpy(symVar, tempVar, sizeof(tempVar));
+		errF = 1; return;
 	}
 }
 
@@ -286,20 +331,28 @@ void factor()
 {
 	switch (token.kind)
 	{
-	case VarName:								// 변수
+	case VarName:		// 변수
 		if (!symVar[token.intVal].isAvailable) { errF = 10; break; }	// 변수 사용 가능 여부 체크
-		if (symVar[token.intVal].kind == Int) {
-			push(symVar[token.intVal].intNum);
-			break;
-		}
-		else { errF = 1; break; }
-	case IntNum:								// 정수 상수
+		if (symVar[token.intVal].kind == Int) push(symVar[token.intVal].intNum);
+		else if (symVar[token.intVal].kind == Float) push(symVar[token.intVal].floatNum);
+		else errF = 1;
+		break;
+	case IntNum:		// 정수
 		push(token.intVal);
 		break;
-	case Lparen:								// (식)
+	case FloatNum:		// 실수
+		push(token.floatVal);
+		break;
+	case Minus:			// 음수
+		token = nextTkn();
+		if (chkTkn(IntNum)) push(-1* token.intVal);		// 상수 일 것
+		else if (chkTkn(FloatNum)) push(-1.0 * token.floatVal);
+		else errF = 1;
+		break;
+	case Lparen:		// (식)
 		token = nextTkn();
 		expression();
-		if (!chkTkn(Rparen)) errF = 1;			// ')'일 것
+		if (!chkTkn(Rparen)) errF = 1;		// ')'일 것
 		break;
 	default:
 		errF = 1;
@@ -323,27 +376,18 @@ Token nextTkn()
 	while (isspace(ch))							// 공백 건너뛰기
 		ch = nextCh();
 
-	if (isdigit(ch)) {							// 숫자
-		for (num = 0; isdigit(ch); ch = nextCh())
-			num = num * 10 + (ch - '0');
-		return Token(IntNum, num);
-	}
-
-	/*
-	// 정수와 실수를 처리하기 위한 과정
-	if (isdigit(ch)) {
+	if (isdigit(ch)) {							// 정수와 실수를 처리하기 위한 과정
 		for (num = 0; isdigit(ch); ch = nextCh())
 			num = num * 10 + (ch - '0');
 
 		if (ch == '.') {
-			++idx;
 			ch = nextCh();
 
 			if (isdigit(ch)) {
 				fnum = num;
 				for (float temp = 1.0; isdigit(ch); ch = nextCh()) {
 					temp *= 0.1;
-					fnum = fnum + (ch = '0')*temp;
+					fnum = fnum + (ch - '0')*temp;
 				}
 				return Token(FloatNum, fnum);
 			}
@@ -355,7 +399,6 @@ Token nextTkn()
 			return Token(IntNum, num);
 		}
 	}
-	*/
 
 	else if (islower(ch)) {						// 변수 or 키워드
 		if (islower(buf[idx])) {				// 키워드
@@ -440,7 +483,7 @@ int nextCh()
  */
 void operate(TknKind op)
 {
-	int d2 = pop(), d1 = pop();
+	float d2 = pop(), d1 = pop();
 
 	if (op == Divi && d2 == 0) errF = 12;
 	if (errF) return;
@@ -457,9 +500,9 @@ void operate(TknKind op)
 /*
  * 거듭제곱을 계산하는 함수
  */
-void powerOperate(int d1, int d2)
+void powerOperate(float d1, int d2)
 {
-	int n = 1;
+	float n = 1;
 	for (int i = 0; i < d2; i++) { n *= d1; }
 	push(n);
 }
@@ -467,7 +510,7 @@ void powerOperate(int d1, int d2)
 /*
  * 스택에 저장하는 함수
  */
-void push(int n)
+void push(float n)
 {
 	if (errF) return;
 	if (stkct + 1 > STK_SIZ) { cout << "stack overflow\n"; exit(1); }
@@ -477,7 +520,7 @@ void push(int n)
 /*
  * 스택에서 추출하는 함수
  */
-int pop()
+float pop()
 {
 	if (errF) return 1;			// 오류 시는 단순히 1을 반환한다
 	if (stkct < 1) { cout << "stack underflow\n"; exit(1); }
